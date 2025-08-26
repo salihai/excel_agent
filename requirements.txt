@@ -1,0 +1,11 @@
+streamlit
+pandas
+python-dotenv
+sqlalchemy
+llama-index-core==0.13.3
+llama-index-llms-openai==0.5
+llama-index-llms-ollama
+xlrd>=2.0.1
+llama-index-embeddings-openai
+asyncio
+requests
