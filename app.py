@@ -5,11 +5,15 @@ from llama_index.core import SQLDatabase
 from llama_index.core.query_engine import NLSQLTableQueryEngine
 from llama_index.core.tools import QueryEngineTool
 from llama_index.llms.ollama import Ollama
-from llama_index.core.agent.workflow import ReActAgent
+from llama_index.llms.huggingface import HuggingFaceLLM
+from llama_index.core.agent.workflow import AgentWorkflow
 import asyncio
+from llama_index.core import Settings
 import os
-
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+import dotenv
+import openai
+dotenv.load_dotenv()
+openai.api_key = dotenv.get_key('.env', 'OPENAI_API_KEY')
 
 def load_file(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
@@ -56,10 +60,14 @@ def load_file(uploaded_file):
 def sql_tool_func(db):
     """SQL query tool for database."""
     
+    Settings.llm = HuggingFaceLLM(model_name="defog/sqlcoder-7b-2",
+        tokenizer_name="defog/sqlcoder-7b-2",
+        device_map="auto")
+    
     sql_query_engine = NLSQLTableQueryEngine(
         sql_database=db,
         tables=db.get_usable_table_names(),
-        llm = Ollama(model="sqlcoder:7b", temperature=0)
+        llm = Settings.llm,
     )
 
     sql_tool = QueryEngineTool.from_defaults(
@@ -73,14 +81,12 @@ def sql_tool_func(db):
     return sql_tool
 
 async def run_agent(db, query):
-    llm = Ollama(model="smollm2:135m")
+    Settings.llm = Ollama(model="smollm2:135m", embed_model='local')
     
-    agent = ReActAgent(
-        name = "Excel Analysis Agent",
-        description = "Agent to analyze and query Excel or CSV data",
+    agent = AgentWorkflow.from_tools_or_functions(
+        [sql_tool_func(db)],
+        llm=Settings.llm,
         system_prompt = "You are an expert data analyst. Use the provided tools to answer queries about the data.",
-        tools =[sql_tool_func(db)],
-        llm=llm,
     )
 
     response = await agent.run(query)

@@ -2,10 +2,10 @@ streamlit
 pandas
 python-dotenv
 sqlalchemy
+xlrd>=2.0.1
+asyncio
+requests
 llama-index-core==0.13.3
 llama-index-llms-openai==0.5
 llama-index-llms-ollama
-xlrd>=2.0.1
 llama-index-embeddings-openai
-asyncio
-requests

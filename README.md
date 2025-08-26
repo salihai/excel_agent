@@ -17,7 +17,6 @@ Excel Analysis Agent is a Streamlit application that lets you upload Excel or CS
 - pandas
 - SQLAlchemy
 - llama-index
-- python-dotenv
 
 ## Installation
 
@@ -44,6 +43,7 @@ Excel Analysis Agent is a Streamlit application that lets you upload Excel or CS
     ```bash
     ollama serve
     ollama pull smollm2:135m
+    ollama pull sqlcoder:7b
     ```
 
 2. **Run the Streamlit app:**
