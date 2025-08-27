@@ -3,15 +3,18 @@ import pandas as pd
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer
 from llama_index.core import SQLDatabase
 from llama_index.core.query_engine import NLSQLTableQueryEngine
-from llama_index.core.tools import QueryEngineTool
+from llama_index.core.tools import QueryEngineTool, FunctionTool
 from llama_index.llms.ollama import Ollama
 from llama_index.llms.huggingface import HuggingFaceLLM
-from llama_index.core.agent.workflow import AgentWorkflow
+from llama_index.core.agent.workflow import AgentWorkflow, ToolCallResult, AgentStream
 import asyncio
 from llama_index.core import Settings
 import os
+import re
 import dotenv
 import openai
+from sqlalchemy import text
+from functools import partial
 dotenv.load_dotenv()
 openai.api_key = dotenv.get_key('.env', 'OPENAI_API_KEY')
 
@@ -43,12 +46,13 @@ def load_file(uploaded_file):
         metadata_obj = MetaData()
         for sheet_name, df in sheets.items():
             columns = [Column(col, String if df[col].dtype == "object" else Integer) for col in df.columns]
-            table = Table(sheet_name, metadata_obj, *columns)
+            table = Table("excel_table", metadata_obj, *columns)
             metadata_obj.create_all(engine)
             with engine.connect() as conn:
                 for _, row in df.iterrows():
                     conn.execute(table.insert().values(**row.to_dict()))
                 conn.commit()
+                
         sql_database = SQLDatabase(engine)
         
         return data, sql_database
@@ -56,35 +60,71 @@ def load_file(uploaded_file):
     else:
         raise ValueError("Unsupported file format")
     
+def clean_table_name(name: str) -> str:
+    name = name.lower()
+    name = re.sub(r"[\s\-]+", "_", name)
+    name = re.sub(r"[^a-z0-9_]", "", name)
+    return name
     
-def sql_tool_func(db, query):
-    """SQL query tool for database."""
-    
-    Settings.llm = HuggingFaceLLM(model_name="Ellbendls/Qwen-2.5-3b-Text_to_SQL",
-        tokenizer_name="Ellbendls/Qwen-2.5-3b-Text_to_SQL",
-        device_map="auto")
-    
-    sql_query_engine = NLSQLTableQueryEngine(
-        sql_database=db,
-        tables=db.get_usable_table_names(),
-        llm = Settings.llm,
-    )
 
-    response = sql_query_engine.query(query)
-    return response
+    
+def sql_tool_func(db):
+    """SQL query tool for database.
+    
+    Args:
+        db: SQLDatabase object representing the database connection.
+        query: Natural language query to convert to SQL.
+    
+    Returns:
+        str: The result of the SQL query execution.
+    """
+    try:
+
+        sql_query_engine = NLSQLTableQueryEngine(
+            sql_database=db,
+            tables=db.get_usable_table_names(),
+            llm=Settings.llm,
+            verbose=True
+        )
+
+        sql_tool = QueryEngineTool.from_defaults(
+            sql_query_engine,
+            name="sql_tool",
+            description=(
+                "Useful for translating a natural language query into a SQL query over"
+            )
+        )
+        return sql_tool
+    
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 async def run_agent(db, query):
-    Settings.llm = Ollama(model="smollm2:135m", embed_model='local')
-    
-    agent = AgentWorkflow.from_tools_or_functions(
-        [sql_tool_func(db, query)],
-        llm=Settings.llm,
-        system_prompt = "You are an expert data analyst. Use the provided tools to answer queries about the data.",
-    )
+    try:
+        Settings.llm = Ollama(model="qwen3:0.6b", embed_model='local', request_timeout=600)
+        
+        
+        agent = AgentWorkflow.from_tools_or_functions(
+            [sql_tool_func(db)],
+            llm=Settings.llm,
+            system_prompt = "You are an expert data analyst. Use the provided tools to converts natural language queries to SQL and run the resulting query on the given table and give the query result as the final answer in a sentence."
+        )
 
-    response = await agent.run(query)
+        handler = agent.run(user_msg=query)
+        
+        async for ev in handler.stream_events():
+            if isinstance(ev, ToolCallResult):
+                print("")
+                print("Called tool: ", ev.tool_name, ev.tool_kwargs, "=>", ev.tool_output)
+            elif isinstance(ev, AgentStream):
+                print(ev.delta, end="", flush=True)
+
+        resp = await handler
+        #print("Final response:", resp)
+        return resp
     
-    return response
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 def main():
     st.title("Excel Analysis Agent")
