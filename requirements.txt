@@ -9,3 +9,4 @@ llama-index-core==0.13.3
 llama-index-llms-openai==0.5
 llama-index-llms-ollama
 llama-index-embeddings-openai
+llama-index-llms-huggingface
