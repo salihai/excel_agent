@@ -57,11 +57,11 @@ def load_file(uploaded_file):
         raise ValueError("Unsupported file format")
     
     
-def sql_tool_func(db):
+def sql_tool_func(db, query):
     """SQL query tool for database."""
     
-    Settings.llm = HuggingFaceLLM(model_name="defog/sqlcoder-7b-2",
-        tokenizer_name="defog/sqlcoder-7b-2",
+    Settings.llm = HuggingFaceLLM(model_name="Ellbendls/Qwen-2.5-3b-Text_to_SQL",
+        tokenizer_name="Ellbendls/Qwen-2.5-3b-Text_to_SQL",
         device_map="auto")
     
     sql_query_engine = NLSQLTableQueryEngine(
@@ -70,21 +70,14 @@ def sql_tool_func(db):
         llm = Settings.llm,
     )
 
-    sql_tool = QueryEngineTool.from_defaults(
-        sql_query_engine,
-        name="sql_tool",
-        description=(
-            "Useful for translating a natural language query into a SQL query over"
-        ),
-        
-    )
-    return sql_tool
+    response = sql_query_engine.query(query)
+    return response
 
 async def run_agent(db, query):
     Settings.llm = Ollama(model="smollm2:135m", embed_model='local')
     
     agent = AgentWorkflow.from_tools_or_functions(
-        [sql_tool_func(db)],
+        [sql_tool_func(db, query)],
         llm=Settings.llm,
         system_prompt = "You are an expert data analyst. Use the provided tools to answer queries about the data.",
     )
@@ -108,18 +101,26 @@ def main():
                 st.session_state.messages = []
 
             for msg in st.session_state.messages:
-                st.chat_message(msg["role"]).markdown(msg["content"])
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
 
             user_input = st.chat_input("Enter your question here...")
             if user_input:
+                st.chat_message("user").markdown(user_input)
                 st.session_state.messages.append({"role": "user", "content": user_input})
+                
                 try:
                     response = asyncio.run(run_agent(db, user_input))
                     st.session_state.messages.append({"role": "assistant", "content": str(response)})
-                    st.chat_message("assistant").markdown(str(response))
+                    
+                    with st.chat_message("assistant"):
+                        st.markdown(str(response))
+                        
                 except Exception as e:
-                    st.session_state.messages.append({"role": "assistant", "content": f"Error: {str(e)}"})
-                    st.chat_message("assistant").markdown(f"Error: {str(e)}")
+                    error_message = f"Error: {str(e)}"
+                    st.session_state.messages.append({"role": "assistant", "content": error_message})
+                    with st.chat_message("assistant"):
+                        st.markdown(error_message)
 
                      
             
